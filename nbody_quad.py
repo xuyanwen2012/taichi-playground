@@ -16,7 +16,7 @@ DIM = 2
 # N-body related
 # NUM_MAX_PARTICLE = 1600
 NUM_MAX_PARTICLE = 8192
-num_particles = ti.field(ti.i32, shape=())
+num_particles = ti.field(dtype=ti.i32, shape=())
 
 # # For some reason, this structure has ~28fps (vs ~25fps)
 # particle_pos = ti.Vector.field(n=DIM, dtype=ti.f32, shape=NUM_MAX_PARTICLE)
@@ -39,7 +39,16 @@ G = -1e1
 # Quadtree related
 K = 2
 T_MAX_DEPTH = 7
-T_NODES = K ** T_MAX_DEPTH
+T_MAX_NODES = K ** T_MAX_DEPTH
+
+node_mass = ti.field(ti.f32)
+node_particle_id = ti.field(ti.i32)
+node_centroid_pos = ti.Vector.field(DIM, ti.f32)
+# node_children = ti.field(ti.i32)
+node_table = ti.root.dense(ti.i, T_MAX_NODES)
+node_table.place(node_mass, node_particle_id, node_centroid_pos)  # AoS here
+# node_table.dense({2: ti.jk, 3: ti.jkl}[DIM], 2).place(node_children) #????
+node_table_len = ti.field(dtype=ti.i32, shape=())
 
 
 @ti.kernel
