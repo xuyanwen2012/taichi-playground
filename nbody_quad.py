@@ -18,13 +18,16 @@ DIM = 2
 NUM_MAX_PARTICLE = 8192
 num_particles = ti.field(ti.i32, shape=())
 
+# # For some reason, this structure has ~28fps (vs ~25fps)
+# particle_pos = ti.Vector.field(n=DIM, dtype=ti.f32, shape=NUM_MAX_PARTICLE)
+# particle_vel = ti.Vector.field(n=DIM, dtype=ti.f32, shape=NUM_MAX_PARTICLE)
+
 particle_pos = ti.Vector.field(n=DIM, dtype=ti.f32)
 particle_vel = ti.Vector.field(n=DIM, dtype=ti.f32)
 particle_table = ti.root.dense(ti.i, NUM_MAX_PARTICLE)
 
 # particle_table.place(particle_pos, particle_vel)
 particle_table.place(particle_pos).place(particle_vel)
-
 
 # N-body physics related
 R0 = 0.05
@@ -47,6 +50,7 @@ def initialize():
         particle_pos[i] = 0.5 + ti.Vector([ti.cos(a), ti.sin(a)]) * r
 
 
+# The O(N^2) kernel algorithm
 @ti.kernel
 def substep():
     for i in range(num_particles[None]):
