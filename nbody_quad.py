@@ -7,15 +7,16 @@ import math
 import numpy as np
 
 # , print_preprocessed=True
-ti.init(arch=ti.cpu)
+ti.init(arch=ti.gpu)
 
 # Program related
 RES = 512
 DIM = 2
 
 # N-body related
+# NUM_MAX_PARTICLE = 1600
 NUM_MAX_PARTICLE = 8192
-num_particles = ti.field(ti.f32, shape=())
+num_particles = ti.field(ti.i32, shape=())
 
 particle_pos = ti.Vector.field(n=DIM, dtype=ti.f32)
 particle_vel = ti.Vector.field(n=DIM, dtype=ti.f32)
@@ -23,6 +24,7 @@ particle_table = ti.root.dense(ti.i, NUM_MAX_PARTICLE)
 
 # particle_table.place(particle_pos, particle_vel)
 particle_table.place(particle_pos).place(particle_vel)
+
 
 # N-body physics related
 R0 = 0.05
@@ -39,7 +41,7 @@ T_NODES = K ** T_MAX_DEPTH
 
 @ti.kernel
 def initialize():
-    for i in range(num_particles):
+    for i in range(num_particles[None]):
         a = ti.random() * math.tau
         r = ti.sqrt(ti.random()) * 0.3
         particle_pos[i] = 0.5 + ti.Vector([ti.cos(a), ti.sin(a)]) * r
@@ -47,11 +49,11 @@ def initialize():
 
 @ti.kernel
 def substep():
-    for i in range(num_particles):
+    for i in range(num_particles[None]):
         acc = ti.Vector([0.0, 0.0])
 
         p = particle_pos[i]
-        for j in range(num_particles):
+        for j in range(num_particles[None]):
             if i != j:
                 r = p - particle_pos[j]
                 x = R0 / r.norm(1e-4)
@@ -62,7 +64,7 @@ def substep():
 
         particle_vel[i] += acc * DT
 
-    for i in range(num_particles):
+    for i in range(num_particles[None]):
         particle_pos[i] += particle_vel[i] * DT
 
 
