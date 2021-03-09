@@ -1,6 +1,7 @@
 import taichi as ti
 import math
 import numpy as np
+import time
 
 # --------------- Windows timer utils ---------------
 
@@ -162,6 +163,7 @@ def next_hit(pos, d):
 
 @ti.kernel
 def render():
+    # ti.parallelize(8)
     for u, v in color_buffer:
         time_starts[u, v] = get_time_nanosec()
 
@@ -199,5 +201,8 @@ def render():
 
 
 timer_init()
+start = time.time()
 render()
 print_results()
+end = time.time()
+print(end - start)
