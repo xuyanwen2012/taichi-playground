@@ -14,6 +14,7 @@ if not hasattr(ti, 'jkl'):
 # N-body related
 DIM = 2
 NUM_MAX_PARTICLE = 8192  # 2^13
+SHAPE_FACTOR = 1
 
 # Using this table to store all the information (pos, vel, mass) of particles
 # Currently using SoA memory model
@@ -49,6 +50,17 @@ node_table.place(node_particle_id, node_centroid_pos, node_mass)  # AoS here
 node_table.dense(indices={2: ti.jk, 3: ti.jkl}[DIM], dimensions=2).place(
     node_children)  # ????
 node_table_len = ti.field(dtype=ti.i32, shape=())
+
+# Also a trash table
+trash_particle_id = ti.field(ti.i32)
+trash_base_parent = ti.field(ti.i32)
+trash_base_geo_center = ti.Vector.field(DIM, ti.f32)
+trash_base_geo_size = ti.field(ti.f32)
+trash_table = ti.root.dense(ti.i, T_MAX_DEPTH)
+trash_table.place(trash_particle_id)
+trash_table.place(trash_base_parent, trash_base_geo_size)
+trash_table.place(trash_base_geo_center)
+trash_table_len = ti.field(ti.i32, ())
 
 
 @ti.func
@@ -87,6 +99,13 @@ def alloc_particle():
 
 
 @ti.func
+def alloc_trash():
+    ret = ti.atomic_add(trash_table_len[None], 1)
+    assert ret < T_MAX_DEPTH
+    return ret
+
+
+@ti.func
 def alloc_a_node_for_particle(particle_id, parent, parent_geo_center,
                               parent_geo_size):
     """
@@ -108,6 +127,11 @@ def alloc_a_node_for_particle(particle_id, parent, parent_geo_center,
             break
         if already_particle_id != TREE:
             node_particle_id[parent] = TREE
+            trash_id = alloc_trash()
+            trash_particle_id[trash_id] = already_particle_id
+            trash_base_parent[trash_id] = parent
+            trash_base_geo_center[trash_id] = parent_geo_center
+            trash_base_geo_size[trash_id] = parent_geo_size
             # Subtract pos/mass of the particle from the parent node
             already_pos = particle_pos[already_particle_id]
             already_mass = particle_mass[already_particle_id]
@@ -149,6 +173,7 @@ def build_tree():
     :return:
     """
     node_table_len[None] = 0
+    trash_table_len[None] = 0
     alloc_node()
 
     # (Making sure not to parallelize this loop)
@@ -160,6 +185,15 @@ def build_tree():
         # 1.0 (whole) as the parent geo size
         alloc_a_node_for_particle(particle_id, 0, particle_pos[0] * 0 + 0.5,
                                   1.0)
+        trash_id = 0
+        while trash_id < trash_table_len[None]:
+            alloc_a_node_for_particle(trash_particle_id[trash_id],
+                                      trash_base_parent[trash_id],
+                                      trash_base_geo_center[trash_id],
+                                      trash_base_geo_size[trash_id])
+            trash_id = trash_id + 1
+
+        trash_table_len[None] = 0
         particle_id = particle_id + 1
 
 
@@ -173,15 +207,6 @@ def gravity_func(distance):
     # --- The equation defined in the new n-body example
     l2 = distance.norm_sqr() + 1e-3
     return distance * (l2 ** ((-3) / 2))
-
-    # --- The equation defined in the original n-body example
-    # acc = particle_pos[0] * 0
-    # x = R0 / distance.norm(1e-4)
-    # # Molecular force: https://www.zhihu.com/question/38966526
-    # acc += EPS * (x ** 13 - x ** 7) * distance
-    # # Long-distance gravity force:
-    # acc += G * (x ** 3) * distance
-    # return acc
 
 
 @ti.func
@@ -205,13 +230,13 @@ def get_tree_gravity_at(position):
             acc += particle_mass[particle_id] * gravity_func(distance)
 
         else:  # TREE or LEAF
-            for which in ti.grouped(ti.ndrange(*([2] * kDim))):
+            for which in ti.grouped(ti.ndrange(*([2] * DIM))):
                 child = node_children[parent, which]
                 if child == LEAF:
                     continue
-                node_center = node_weighted_pos[child] / node_mass[child]
+                node_center = node_centroid_pos[child] / node_mass[child]
                 distance = node_center - position
-                if distance.norm_sqr() > kShapeFactor ** 2 * parent_geo_size ** 2:
+                if distance.norm_sqr() > SHAPE_FACTOR ** 2 * parent_geo_size ** 2:
                     acc += node_mass[child] * gravity_func(distance)
                 else:
                     new_trash_id = alloc_trash()
@@ -247,7 +272,7 @@ def boundReflect(pos, vel, pmin=0, pmax=1, gamma=1, gamma_perpendicular=1):
         The particle velocity.
     :parameter pmin: (scalar or Vector)
         The position lower boundary. If vector, it's the bottom-left of rect.
-    :parameter pmin: (scalar or Vector)
+    :parameter pmax: (scalar or Vector)
         The position upper boundary. If vector, it's the top-right of rect.
     """
     cond = pos < pmin and vel < 0 or pos > pmax and vel > 0
@@ -314,5 +339,5 @@ if __name__ == '__main__':
 
         # Main computation
         build_tree()
-        # substep()
-        substep_raw()
+        substep_tree()
+        # substep_raw()
