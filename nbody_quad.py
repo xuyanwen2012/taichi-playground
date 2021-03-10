@@ -33,8 +33,8 @@ EPS = 1e-3
 G = -1e1
 
 # Quadtree related
-T_MAX_DEPTH = NUM_MAX_PARTICLE
-T_MAX_NODES = 4 * T_MAX_DEPTH  # T_MAX_NODES = K ** T_MAX_DEPTH
+T_MAX_DEPTH = 1 * NUM_MAX_PARTICLE
+T_MAX_NODES = 4 * T_MAX_DEPTH
 LEAF = -1
 TREE = -2
 
@@ -185,6 +185,7 @@ def build_tree():
         # 1.0 (whole) as the parent geo size
         alloc_a_node_for_particle(particle_id, 0, particle_pos[0] * 0 + 0.5,
                                   1.0)
+
         trash_id = 0
         while trash_id < trash_table_len[None]:
             alloc_a_node_for_particle(trash_particle_id[trash_id],
@@ -293,9 +294,9 @@ def substep_tree():
         acceleration = get_tree_gravity_at(particle_pos[particle_id])
         particle_vel[particle_id] += acceleration * DT
         # well... seems our tree inserter will break if particle out-of-bound:
-        particle_vel[particle_id] = boundReflect(particle_pos[particle_id],
-                                                 particle_vel[particle_id],
-                                                 0, 1)
+        # particle_vel[particle_id] = boundReflect(particle_pos[particle_id],
+        #                                          particle_vel[particle_id],
+        #                                          0, 1)
         particle_id = particle_id + 1
     for i in range(num_particles[None]):
         particle_pos[i] += particle_vel[i] * DT
@@ -332,7 +333,7 @@ def initialize(num_p: ti.i32):
 if __name__ == '__main__':
     gui = ti.GUI('N-body Star')
 
-    initialize(1600)
+    initialize(512)
     while gui.running and not gui.get_event(ti.GUI.ESCAPE):
         gui.circles(particle_pos.to_numpy(), radius=2, color=0xfbfcbf)
         gui.show()
