@@ -176,28 +176,24 @@ def substep_raw():
 
 
 @ti.kernel
-def initialize_raw(num_p: ti.i32):
+def initialize(num_p: ti.i32):
     """
     Randomly set the initial position of the particles to start with. Note
     set a value to 'num_particles[None]' taichi field to indicate.
     :return: None
     """
     for i in range(num_p):
+        particle_id = alloc_particle()
+
         a = ti.random() * math.tau
         r = ti.sqrt(ti.random()) * 0.3
-        particle_pos[i] = 0.5 + ti.Vector([ti.cos(a), ti.sin(a)]) * r
-
-
-@ti.kernel
-def initialize(num_p: ti.i32):
-    for i in range(num_p):
-        pass
+        particle_pos[particle_id] = 0.5 + ti.Vector([ti.cos(a), ti.sin(a)]) * r
 
 
 if __name__ == '__main__':
     gui = ti.GUI('N-body Star')
 
-    initialize_raw(1600)
+    initialize(1600)
     while gui.running and not gui.get_event(ti.GUI.ESCAPE):
         gui.circles(particle_pos.to_numpy(), radius=2, color=0xfbfcbf)
         gui.show()
