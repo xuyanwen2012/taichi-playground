@@ -168,6 +168,71 @@ def build_tree():
         particle_id = particle_id + 1
 
 
+@ti.func
+def gravity_func(distance):
+    # --- The equation defined in the new n-body example
+    l2 = distance.norm_sqr() + 1e-3
+    return distance * (l2 ** ((-3) / 2))
+
+    # --- The equation defined in the original n-body example
+    # acc = particle_pos[0] * 0
+    # x = R0 / distance.norm(1e-4)
+    # # Molecular force: https://www.zhihu.com/question/38966526
+    # acc += EPS * (x ** 13 - x ** 7) * distance
+    # # Long-distance gravity force:
+    # acc += G * (x ** 3) * distance
+    # return acc
+
+
+#
+# @ti.func
+# def get_tree_gravity_at(position):
+#     acc = particle_pos[0] * 0
+#
+#     trash_table_len[None] = 0
+#     trash_id = alloc_trash()
+#     assert trash_id == 0
+#     trash_base_parent[trash_id] = 0
+#     trash_base_geo_size[trash_id] = 1.0
+#
+#     trash_id = 0
+#     while trash_id < trash_table_len[None]:
+#         parent = trash_base_parent[trash_id]
+#         parent_geo_size = trash_base_geo_size[trash_id]
+#
+#         particle_id = node_particle_id[parent]
+#         if particle_id >= 0:
+#             distance = particle_pos[particle_id] - position
+#             acc += particle_mass[particle_id] * gravity_func(distance)
+#
+#         else:  # TREE or LEAF
+#             for which in ti.grouped(ti.ndrange(*([2] * kDim))):
+#                 child = node_children[parent, which]
+#                 if child == LEAF:
+#                     continue
+#                 node_center = node_weighted_pos[child] / node_mass[child]
+#                 distance = node_center - position
+#                 if distance.norm_sqr() > kShapeFactor ** 2 * parent_geo_size ** 2:
+#                     acc += node_mass[child] * gravity_func(distance)
+#                 else:
+#                     new_trash_id = alloc_trash()
+#                     child_geo_size = parent_geo_size * 0.5
+#                     trash_base_parent[new_trash_id] = child
+#                     trash_base_geo_size[new_trash_id] = child_geo_size
+#
+#         trash_id = trash_id + 1
+#
+#     return acc
+
+
+@ti.func
+def get_raw_gravity_at(pos):
+    acc = particle_pos[0] * 0
+    for i in range(num_particles[None]):
+        acc += particle_mass[i] * gravity_func(particle_pos[i] - pos)
+    return acc
+
+
 # The O(NlogN) kernel using quadtree
 @ti.kernel
 def substep():
@@ -179,20 +244,8 @@ def substep():
 @ti.kernel
 def substep_raw():
     for i in range(num_particles[None]):
-        acc = ti.Vector([0.0, 0.0])
-
-        p = particle_pos[i]
-        for j in range(num_particles[None]):
-            if i != j:
-                r = p - particle_pos[j]
-                x = R0 / r.norm(1e-4)
-                # Molecular force: https://www.zhihu.com/question/38966526
-                acc += EPS * (x ** 13 - x ** 7) * r
-                # Long-distance gravity force:
-                acc += G * (x ** 3) * r
-
-        particle_vel[i] += acc * DT
-
+        acceleration = get_raw_gravity_at(particle_pos[i])
+        particle_vel[i] += acceleration * DT
     for i in range(num_particles[None]):
         particle_pos[i] += particle_vel[i] * DT
 
@@ -218,12 +271,11 @@ def initialize(num_p: ti.i32):
 if __name__ == '__main__':
     gui = ti.GUI('N-body Star')
 
-    initialize(2)
-    # initialize(1600)
+    initialize(1600)
     while gui.running and not gui.get_event(ti.GUI.ESCAPE):
         gui.circles(particle_pos.to_numpy(), radius=2, color=0xfbfcbf)
         gui.show()
-        for _ in range(STEPS):
-            build_tree()
-            substep()
-            # substep_raw()
+        # for _ in range(STEPS):
+        build_tree()
+        # substep()
+        substep_raw()
