@@ -80,7 +80,7 @@ def alloc_node():
 @ti.func
 def alloc_particle():
     """
-
+    Always use this function to obtain an new particle id to operate on.
     :return: The ID of the just allocated particle
     """
     ret = ti.atomic_add(num_particles[None], 1)
@@ -134,10 +134,16 @@ def alloc_a_node_for_particle(particle_id, parent, parent_geo_center,
 
 @ti.kernel
 def build_tree():
+    """
+    Once the 'particle table' is populated, we can construct a 'node table',
+    which contains all the node information, and construct the child table as
+    well.
+    :return:
+    """
     node_table_len[None] = 0
     alloc_node()
 
-    # Making sure not to parallelize this loop
+    # Making sure not to parallelize this loop, for each particle operation.
     particle_id = 0
     while particle_id < num_particles[None]:
         alloc_a_node_for_particle(particle_id, 0, particle_pos[0] * 0 + 0.5,
@@ -188,6 +194,9 @@ def initialize(num_p: ti.i32):
         a = ti.random() * math.tau
         r = ti.sqrt(ti.random()) * 0.3
         particle_pos[particle_id] = 0.5 + ti.Vector([ti.cos(a), ti.sin(a)]) * r
+
+        # TODO: random initial starting velocity and mass
+        # particle_mass[particle_id] = tl.randRange(0.0, 1.5)
 
 
 if __name__ == '__main__':
