@@ -40,6 +40,7 @@ node_particle_id = ti.field(ti.i32)
 node_children = ti.field(ti.i32)
 
 node_table = ti.root.dense(ti.i, T_MAX_NODES)
+# node_table.place(node_mass, node_particle_id, node_centroid_pos)
 node_table.place(node_particle_id, node_centroid_pos, node_mass)  # AoS here
 node_table.dense(indices={2: ti.jk, 3: ti.jkl}[DIM], dimensions=2).place(
     node_children)  # ????
@@ -328,6 +329,7 @@ if __name__ == '__main__':
     gui = ti.GUI('N-body Star')
 
     initialize(512)
+
     while gui.running and not gui.get_event(ti.GUI.ESCAPE):
         gui.circles(particle_pos.to_numpy(), radius=2, color=0xfbfcbf)
         gui.show()
