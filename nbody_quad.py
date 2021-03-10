@@ -12,6 +12,7 @@ if not hasattr(ti, 'jkl'):
     ti.jkl = ti.indices(1, 2, 3)
 
 # N-body related
+DT = 1e-5
 DIM = 2
 NUM_MAX_PARTICLE = 8192  # 2^13
 SHAPE_FACTOR = 1
@@ -24,13 +25,6 @@ particle_mass = ti.field(dtype=ti.f32)
 particle_table = ti.root.dense(indices=ti.i, dimensions=NUM_MAX_PARTICLE)
 particle_table.place(particle_pos).place(particle_vel).place(particle_mass)
 num_particles = ti.field(dtype=ti.i32, shape=())
-
-# N-body physics related (Old Example Physics)
-R0 = 0.05
-DT = 1e-5
-STEPS = 160
-EPS = 1e-3
-G = -1e1
 
 # Quadtree related
 T_MAX_DEPTH = 1 * NUM_MAX_PARTICLE
