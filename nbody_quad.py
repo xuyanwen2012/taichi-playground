@@ -20,7 +20,7 @@ NUM_MAX_PARTICLE = 8192  # 2^13
 particle_pos = ti.Vector.field(n=DIM, dtype=ti.f32)
 particle_vel = ti.Vector.field(n=DIM, dtype=ti.f32)
 particle_mass = ti.field(dtype=ti.f32)
-particle_table = ti.root.dense(ti.i, NUM_MAX_PARTICLE)
+particle_table = ti.root.dense(indices=ti.i, dimensions=NUM_MAX_PARTICLE)
 particle_table.place(particle_pos).place(particle_vel).place(particle_mass)
 num_particles = ti.field(dtype=ti.i32, shape=())
 
@@ -42,10 +42,12 @@ LEAF = -1
 TREE = -2
 
 # Each node contains information about the node mass, the centroid position,
+# and the particle which it contains in ID
 node_mass = ti.field(ti.f32)
 node_particle_id = ti.field(ti.i32)
 node_centroid_pos = ti.Vector.field(DIM, ti.f32)
 
+# Node table contains information
 node_children = ti.field(ti.i32)
 node_table = ti.root.dense(ti.i, T_MAX_NODES)
 node_table.place(node_mass, node_particle_id, node_centroid_pos)  # AoS here
@@ -56,15 +58,19 @@ node_table_len = ti.field(dtype=ti.i32, shape=())
 
 @ti.func
 def alloc_node():
+    """
+    Increment the current node table length, clear and set initial values
+    (mass/centroid) to zeros of the allocated. The children information is
+    stored in the 'node_children' table.
+    :return: the ID of the just allocated node
+    """
     ret = ti.atomic_add(node_table_len[None], 1)
     assert ret < T_MAX_NODES
 
-    # Clear nodes I guess?
     node_mass[ret] = 0
     node_centroid_pos[ret] = particle_pos[0] * 0
 
-    # indicating this new allocated as leaf node, and set the 4 children to be
-    # LEAF as well
+    # indicate the 4 children to be LEAF as well
     node_particle_id[ret] = LEAF
     for which in ti.grouped(ti.ndrange(*([2] * DIM))):
         node_children[ret, which] = LEAF
@@ -73,6 +79,10 @@ def alloc_node():
 
 @ti.func
 def alloc_particle():
+    """
+
+    :return: The ID of the just allocated particle
+    """
     ret = ti.atomic_add(num_particles[None], 1)
     assert ret < NUM_MAX_PARTICLE
     particle_mass[ret] = 0
@@ -166,18 +176,28 @@ def substep_raw():
 
 
 @ti.kernel
-def initialize():
-    for i in range(num_particles[None]):
+def initialize_raw(num_p: ti.i32):
+    """
+    Randomly set the initial position of the particles to start with. Note
+    set a value to 'num_particles[None]' taichi field to indicate.
+    :return: None
+    """
+    for i in range(num_p):
         a = ti.random() * math.tau
         r = ti.sqrt(ti.random()) * 0.3
         particle_pos[i] = 0.5 + ti.Vector([ti.cos(a), ti.sin(a)]) * r
 
 
+@ti.kernel
+def initialize(num_p: ti.i32):
+    for i in range(num_p):
+        pass
+
+
 if __name__ == '__main__':
-    num_particles[None] = 1600
     gui = ti.GUI('N-body Star')
 
-    initialize()
+    initialize_raw(1600)
     while gui.running and not gui.get_event(ti.GUI.ESCAPE):
         gui.circles(particle_pos.to_numpy(), radius=2, color=0xfbfcbf)
         gui.show()
