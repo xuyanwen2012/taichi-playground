@@ -94,9 +94,18 @@ def alloc_particle():
 @ti.func
 def alloc_a_node_for_particle(particle_id, parent, parent_geo_center,
                               parent_geo_size):
+    """
+
+    :param particle_id: The particle to be registered
+    :param parent:
+    :param parent_geo_center:
+    :param parent_geo_size:
+    """
     position = particle_pos[particle_id]
     mass = particle_mass[particle_id]
 
+    # (Making sure not to parallelize this loop)
+    # Traversing down the tree to find a suitable location for the particle.
     depth = 0
     while depth < T_MAX_DEPTH:
         already_particle_id = node_particle_id[parent]
@@ -113,6 +122,7 @@ def alloc_a_node_for_particle(particle_id, parent, parent_geo_center,
         node_centroid_pos[parent] += position * mass
         node_mass[parent] += mass
 
+        # Determine which quadrant (as 'child') this particle shout go into.
         which = abs(position > parent_geo_center)
         child = node_children[parent, which]
         if child == LEAF:
@@ -127,6 +137,7 @@ def alloc_a_node_for_particle(particle_id, parent, parent_geo_center,
 
         depth = depth + 1
 
+    # Note, parent here was used as like a 'current' in iterative
     node_particle_id[parent] = particle_id
     node_centroid_pos[parent] = position * mass
     node_mass[parent] = mass
@@ -143,12 +154,15 @@ def build_tree():
     node_table_len[None] = 0
     alloc_node()
 
-    # Making sure not to parallelize this loop, for each particle operation.
+    # (Making sure not to parallelize this loop)
+    # Foreach particle: register it to a node.
     particle_id = 0
     while particle_id < num_particles[None]:
+        # Root as parent,
+        # 0.5 (center) as the parent centroid position
+        # 1.0 (whole) as the parent geo size
         alloc_a_node_for_particle(particle_id, 0, particle_pos[0] * 0 + 0.5,
                                   1.0)
-
         particle_id = particle_id + 1
 
 
