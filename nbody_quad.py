@@ -128,6 +128,8 @@ def alloc_a_node_for_particle(particle_id, parent, parent_geo_center,
         if child == LEAF:
             child = alloc_node()
             node_children[parent, which] = child
+
+        # the geo size of this level should be halved
         child_geo_size = parent_geo_size * 0.5
         child_geo_center = parent_geo_center + (which - 0.5) * child_geo_size
 
@@ -209,14 +211,15 @@ def initialize(num_p: ti.i32):
         r = ti.sqrt(ti.random()) * 0.3
         particle_pos[particle_id] = 0.5 + ti.Vector([ti.cos(a), ti.sin(a)]) * r
 
-        # TODO: random initial starting velocity and mass
-        # particle_mass[particle_id] = tl.randRange(0.0, 1.5)
+        particle_mass[particle_id] = ti.random() * 1.4 + 0.1
+        # TODO: random initial starting velocity?
 
 
 if __name__ == '__main__':
     gui = ti.GUI('N-body Star')
 
-    initialize(1600)
+    initialize(2)
+    # initialize(1600)
     while gui.running and not gui.get_event(ti.GUI.ESCAPE):
         gui.circles(particle_pos.to_numpy(), radius=2, color=0xfbfcbf)
         gui.show()
