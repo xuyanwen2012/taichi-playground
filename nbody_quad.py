@@ -1,33 +1,32 @@
-# Heavily inspired by 'N-body example', 'Quadtree example', and 'Tree Gravity example'.
-#
-# https://github.com/taichi-dev/taichi/blob/master/examples/tree_gravity.py#L18
-#
+""" Heavily inspired by 'N-body example', 'Quadtree example', and
+'Tree Gravity example'.
+
+https://github.com/taichi-dev/taichi/blob/master/examples/tree_gravity.py#L18
+
+"""
 import taichi as ti
 import math
-import numpy as np
 
-# , print_preprocessed=True
 ti.init(arch=ti.gpu)
-
-# Program related
-RES = 512
-DIM = 2
+if not hasattr(ti, 'jkl'):
+    ti.jkl = ti.indices(1, 2, 3)
 
 # N-body related
-# NUM_MAX_PARTICLE = 1600
-NUM_MAX_PARTICLE = 8192
+DIM = 2
+NUM_MAX_PARTICLE = 8192  # 2^13
+
+# Using this table to store all the information (pos, vel, mass) of particles
+# Currently using SoA memory model
+particle_pos = ti.Vector.field(n=DIM, dtype=ti.f32)
+particle_vel = ti.Vector.field(n=DIM, dtype=ti.f32)
+particle_mass = ti.field(dtype=ti.f32)
+particle_table = ti.root.dense(ti.i, NUM_MAX_PARTICLE)
+particle_table.place(particle_pos).place(particle_vel).place(particle_mass)
 num_particles = ti.field(dtype=ti.i32, shape=())
 
 # # For some reason, this structure has ~28fps (vs ~25fps)
 # particle_pos = ti.Vector.field(n=DIM, dtype=ti.f32, shape=NUM_MAX_PARTICLE)
 # particle_vel = ti.Vector.field(n=DIM, dtype=ti.f32, shape=NUM_MAX_PARTICLE)
-
-particle_pos = ti.Vector.field(n=DIM, dtype=ti.f32)
-particle_vel = ti.Vector.field(n=DIM, dtype=ti.f32)
-particle_table = ti.root.dense(ti.i, NUM_MAX_PARTICLE)
-
-# particle_table.place(particle_pos, particle_vel)
-particle_table.place(particle_pos).place(particle_vel)
 
 # N-body physics related
 R0 = 0.05
@@ -37,31 +36,116 @@ EPS = 1e-3
 G = -1e1
 
 # Quadtree related
-K = 2
-T_MAX_DEPTH = 7
-T_MAX_NODES = K ** T_MAX_DEPTH
+T_MAX_DEPTH = NUM_MAX_PARTICLE
+T_MAX_NODES = 4 * T_MAX_DEPTH  # T_MAX_NODES = K ** T_MAX_DEPTH
+LEAF = -1
+TREE = -2
 
+# Each node contains information about the node mass, the centroid position,
 node_mass = ti.field(ti.f32)
 node_particle_id = ti.field(ti.i32)
 node_centroid_pos = ti.Vector.field(DIM, ti.f32)
-# node_children = ti.field(ti.i32)
+
+node_children = ti.field(ti.i32)
 node_table = ti.root.dense(ti.i, T_MAX_NODES)
 node_table.place(node_mass, node_particle_id, node_centroid_pos)  # AoS here
-# node_table.dense({2: ti.jk, 3: ti.jkl}[DIM], 2).place(node_children) #????
+node_table.dense(indices={2: ti.jk, 3: ti.jkl}[DIM], dimensions=2).place(
+    node_children)  # ????
 node_table_len = ti.field(dtype=ti.i32, shape=())
 
 
+@ti.func
+def alloc_node():
+    ret = ti.atomic_add(node_table_len[None], 1)
+    assert ret < T_MAX_NODES
+
+    # Clear nodes I guess?
+    node_mass[ret] = 0
+    node_centroid_pos[ret] = particle_pos[0] * 0
+
+    # indicating this new allocated as leaf node, and set the 4 children to be
+    # LEAF as well
+    node_particle_id[ret] = LEAF
+    for which in ti.grouped(ti.ndrange(*([2] * DIM))):
+        node_children[ret, which] = LEAF
+    return ret
+
+
+@ti.func
+def alloc_particle():
+    ret = ti.atomic_add(num_particles[None], 1)
+    assert ret < NUM_MAX_PARTICLE
+    particle_mass[ret] = 0
+    particle_pos[ret] = particle_pos[0] * 0
+    particle_vel[ret] = particle_pos[0] * 0
+    return ret
+
+
+@ti.func
+def alloc_a_node_for_particle(particle_id, parent, parent_geo_center,
+                              parent_geo_size):
+    position = particle_pos[particle_id]
+    mass = particle_mass[particle_id]
+
+    depth = 0
+    while depth < T_MAX_DEPTH:
+        already_particle_id = node_particle_id[parent]
+        if already_particle_id == LEAF:
+            break
+        if already_particle_id != TREE:
+            node_particle_id[parent] = TREE
+            # Subtract pos/mass of the particle from the parent node
+            already_pos = particle_pos[already_particle_id]
+            already_mass = particle_mass[already_particle_id]
+            node_centroid_pos[parent] -= already_pos * already_mass
+            node_mass[parent] -= already_mass
+
+        node_centroid_pos[parent] += position * mass
+        node_mass[parent] += mass
+
+        which = abs(position > parent_geo_center)
+        child = node_children[parent, which]
+        if child == LEAF:
+            child = alloc_node()
+            node_children[parent, which] = child
+        child_geo_size = parent_geo_size * 0.5
+        child_geo_center = parent_geo_center + (which - 0.5) * child_geo_size
+
+        parent_geo_center = child_geo_center
+        parent_geo_size = child_geo_size
+        parent = child
+
+        depth = depth + 1
+
+    node_particle_id[parent] = particle_id
+    node_centroid_pos[parent] = position * mass
+    node_mass[parent] = mass
+
+
 @ti.kernel
-def initialize():
-    for i in range(num_particles[None]):
-        a = ti.random() * math.tau
-        r = ti.sqrt(ti.random()) * 0.3
-        particle_pos[i] = 0.5 + ti.Vector([ti.cos(a), ti.sin(a)]) * r
+def build_tree():
+    node_table_len[None] = 0
+    alloc_node()
+
+    # Making sure not to parallelize this loop
+    particle_id = 0
+    while particle_id < num_particles[None]:
+        alloc_a_node_for_particle(particle_id, 0, particle_pos[0] * 0 + 0.5,
+                                  1.0)
+
+        particle_id = particle_id + 1
+
+
+# The O(NlogN) kernel using quadtree
+@ti.kernel
+def substep():
+    for _ in range(num_particles[None]):
+        pass
 
 
 # The O(N^2) kernel algorithm
 @ti.kernel
-def substep():
+def substep_raw():
     for i in range(num_particles[None]):
         acc = ti.Vector([0.0, 0.0])
 
@@ -81,24 +165,23 @@ def substep():
         particle_pos[i] += particle_vel[i] * DT
 
 
-#
-# @ti.kernel
-# def code_test():
-#     # Permutation
-#     # [0, 0]
-#     # [0, 1]
-#     # [1, 0]
-#     # [1, 1]
-#     for I in ti.grouped(ti.ndrange(*([2] * DIM))):
-#         print(I)
+@ti.kernel
+def initialize():
+    for i in range(num_particles[None]):
+        a = ti.random() * math.tau
+        r = ti.sqrt(ti.random()) * 0.3
+        particle_pos[i] = 0.5 + ti.Vector([ti.cos(a), ti.sin(a)]) * r
 
 
-num_particles[None] = 1600
-gui = ti.GUI('N-body Star')
+if __name__ == '__main__':
+    num_particles[None] = 1600
+    gui = ti.GUI('N-body Star')
 
-initialize()
-while gui.running and not gui.get_event(ti.GUI.ESCAPE):
-    gui.circles(particle_pos.to_numpy(), radius=2, color=0xfbfcbf)
-    gui.show()
-    for i in range(STEPS):
-        substep()
+    initialize()
+    while gui.running and not gui.get_event(ti.GUI.ESCAPE):
+        gui.circles(particle_pos.to_numpy(), radius=2, color=0xfbfcbf)
+        gui.show()
+        for _ in range(STEPS):
+            build_tree()
+            substep()
+            # substep_raw()
