@@ -24,11 +24,7 @@ particle_table = ti.root.dense(indices=ti.i, dimensions=NUM_MAX_PARTICLE)
 particle_table.place(particle_pos).place(particle_vel).place(particle_mass)
 num_particles = ti.field(dtype=ti.i32, shape=())
 
-# # For some reason, this structure has ~28fps (vs ~25fps)
-# particle_pos = ti.Vector.field(n=DIM, dtype=ti.f32, shape=NUM_MAX_PARTICLE)
-# particle_vel = ti.Vector.field(n=DIM, dtype=ti.f32, shape=NUM_MAX_PARTICLE)
-
-# N-body physics related
+# N-body physics related (Old Example Physics)
 R0 = 0.05
 DT = 1e-5
 STEPS = 160
@@ -44,13 +40,12 @@ TREE = -2
 # Each node contains information about the node mass, the centroid position,
 # and the particle which it contains in ID
 node_mass = ti.field(ti.f32)
-node_particle_id = ti.field(ti.i32)
 node_centroid_pos = ti.Vector.field(DIM, ti.f32)
-
-# Node table contains information
+node_particle_id = ti.field(ti.i32)
 node_children = ti.field(ti.i32)
+
 node_table = ti.root.dense(ti.i, T_MAX_NODES)
-node_table.place(node_mass, node_particle_id, node_centroid_pos)  # AoS here
+node_table.place(node_particle_id, node_centroid_pos, node_mass)  # AoS here
 node_table.dense(indices={2: ti.jk, 3: ti.jkl}[DIM], dimensions=2).place(
     node_children)  # ????
 node_table_len = ti.field(dtype=ti.i32, shape=())
@@ -170,6 +165,11 @@ def build_tree():
 
 @ti.func
 def gravity_func(distance):
+    """
+    Define which ever the equation used to compute gravity here
+    :param distance: the distance between things.
+    :return:
+    """
     # --- The equation defined in the new n-body example
     l2 = distance.norm_sqr() + 1e-3
     return distance * (l2 ** ((-3) / 2))
@@ -184,45 +184,44 @@ def gravity_func(distance):
     # return acc
 
 
-#
-# @ti.func
-# def get_tree_gravity_at(position):
-#     acc = particle_pos[0] * 0
-#
-#     trash_table_len[None] = 0
-#     trash_id = alloc_trash()
-#     assert trash_id == 0
-#     trash_base_parent[trash_id] = 0
-#     trash_base_geo_size[trash_id] = 1.0
-#
-#     trash_id = 0
-#     while trash_id < trash_table_len[None]:
-#         parent = trash_base_parent[trash_id]
-#         parent_geo_size = trash_base_geo_size[trash_id]
-#
-#         particle_id = node_particle_id[parent]
-#         if particle_id >= 0:
-#             distance = particle_pos[particle_id] - position
-#             acc += particle_mass[particle_id] * gravity_func(distance)
-#
-#         else:  # TREE or LEAF
-#             for which in ti.grouped(ti.ndrange(*([2] * kDim))):
-#                 child = node_children[parent, which]
-#                 if child == LEAF:
-#                     continue
-#                 node_center = node_weighted_pos[child] / node_mass[child]
-#                 distance = node_center - position
-#                 if distance.norm_sqr() > kShapeFactor ** 2 * parent_geo_size ** 2:
-#                     acc += node_mass[child] * gravity_func(distance)
-#                 else:
-#                     new_trash_id = alloc_trash()
-#                     child_geo_size = parent_geo_size * 0.5
-#                     trash_base_parent[new_trash_id] = child
-#                     trash_base_geo_size[new_trash_id] = child_geo_size
-#
-#         trash_id = trash_id + 1
-#
-#     return acc
+@ti.func
+def get_tree_gravity_at(position):
+    acc = particle_pos[0] * 0
+
+    trash_table_len[None] = 0
+    trash_id = alloc_trash()
+    assert trash_id == 0
+    trash_base_parent[trash_id] = 0
+    trash_base_geo_size[trash_id] = 1.0
+
+    trash_id = 0
+    while trash_id < trash_table_len[None]:
+        parent = trash_base_parent[trash_id]
+        parent_geo_size = trash_base_geo_size[trash_id]
+
+        particle_id = node_particle_id[parent]
+        if particle_id >= 0:
+            distance = particle_pos[particle_id] - position
+            acc += particle_mass[particle_id] * gravity_func(distance)
+
+        else:  # TREE or LEAF
+            for which in ti.grouped(ti.ndrange(*([2] * kDim))):
+                child = node_children[parent, which]
+                if child == LEAF:
+                    continue
+                node_center = node_weighted_pos[child] / node_mass[child]
+                distance = node_center - position
+                if distance.norm_sqr() > kShapeFactor ** 2 * parent_geo_size ** 2:
+                    acc += node_mass[child] * gravity_func(distance)
+                else:
+                    new_trash_id = alloc_trash()
+                    child_geo_size = parent_geo_size * 0.5
+                    trash_base_parent[new_trash_id] = child
+                    trash_base_geo_size[new_trash_id] = child_geo_size
+
+        trash_id = trash_id + 1
+
+    return acc
 
 
 @ti.func
@@ -233,11 +232,48 @@ def get_raw_gravity_at(pos):
     return acc
 
 
+# Helper functions I lifted from 'taichi_glsl'
+@ti.func
+def boundReflect(pos, vel, pmin=0, pmax=1, gamma=1, gamma_perpendicular=1):
+    """
+    Reflect particle velocity from a rectangular boundary (if collides).
+    `boundaryReflect` takes particle position, velocity and other parameters.
+    Detect if the particle collides with the rect boundary given by ``pmin``
+    and ``pmax``, if collide, returns the velocity after bounced with boundary,
+    otherwise return the original velocity without any change.
+    :parameter pos: (Vector)
+        The particle position.
+    :parameter vel: (Vector)
+        The particle velocity.
+    :parameter pmin: (scalar or Vector)
+        The position lower boundary. If vector, it's the bottom-left of rect.
+    :parameter pmin: (scalar or Vector)
+        The position upper boundary. If vector, it's the top-right of rect.
+    """
+    cond = pos < pmin and vel < 0 or pos > pmax and vel > 0
+    for j in ti.static(range(pos.n)):
+        if cond[j]:
+            vel[j] *= -gamma
+            for k in ti.static(range(pos.n)):
+                if k != j:
+                    vel[k] *= gamma_perpendicular
+    return vel
+
+
 # The O(NlogN) kernel using quadtree
 @ti.kernel
-def substep():
-    for _ in range(num_particles[None]):
-        pass
+def substep_tree():
+    particle_id = 0
+    while particle_id < num_particles[None]:
+        acceleration = get_tree_gravity_at(particle_pos[particle_id])
+        particle_vel[particle_id] += acceleration * DT
+        # well... seems our tree inserter will break if particle out-of-bound:
+        particle_vel[particle_id] = boundReflect(particle_pos[particle_id],
+                                                 particle_vel[particle_id],
+                                                 0, 1)
+        particle_id = particle_id + 1
+    for i in range(num_particles[None]):
+        particle_pos[i] += particle_vel[i] * DT
 
 
 # The O(N^2) kernel algorithm
@@ -275,7 +311,8 @@ if __name__ == '__main__':
     while gui.running and not gui.get_event(ti.GUI.ESCAPE):
         gui.circles(particle_pos.to_numpy(), radius=2, color=0xfbfcbf)
         gui.show()
-        # for _ in range(STEPS):
+
+        # Main computation
         build_tree()
         # substep()
         substep_raw()
