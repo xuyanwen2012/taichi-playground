@@ -7,8 +7,6 @@ https://github.com/taichi-dev/taichi/blob/master/examples/tree_gravity.py#L18
 import taichi as ti
 import math
 
-import imageio
-
 # --------------- Windows timer utils ---------------
 
 import matplotlib.pyplot as plt
@@ -32,11 +30,11 @@ def print_results(fname):
     # print(max(arr))
     # print(min(arr))
 
-    # n, bins, patches = plt.hist(arr, range=[0, 600], alpha=0.75)
+    n, bins, patches = plt.hist(arr, range=[0, 500], alpha=0.75)
     # n, bins, patches = plt.hist(arr, alpha=0.75)
-    n, bins, patches = plt.hist(arr, range=[0, 10000], alpha=0.75)
+    # n, bins, patches = plt.hist(arr, range=[0, 10000], alpha=0.75)
     # n, bins, patches = plt.hist(arr, alpha=0.75)
-    plt.yscale("log")
+    # plt.yscale("log")
     # plt.show()
     plt.savefig(fname)
     # plt.clf()
@@ -233,7 +231,7 @@ def build_tree():
     while particle_id < num_particles[None]:
 
         # ----------- Timer code --------------------
-        time_starts[particle_id] = get_time_nanosec()
+        # time_starts[particle_id] = get_time_nanosec()
         # -------------------------------------------
 
         # Root as parent,
@@ -253,7 +251,7 @@ def build_tree():
         trash_table_len[None] = 0
 
         # ----------- Timer code ------------------
-        time_ends[particle_id] = get_time_nanosec()
+        # time_ends[particle_id] = get_time_nanosec()
         # -----------------------------------------
 
         particle_id = particle_id + 1
@@ -367,6 +365,7 @@ def substep_tree():
                                                  particle_vel[particle_id],
                                                  0, 1)
         particle_id = particle_id + 1
+
     for i in range(num_particles[None]):
         particle_pos[i] += particle_vel[i] * DT
 
@@ -374,8 +373,9 @@ def substep_tree():
 # The O(N^2) kernel algorithm
 @ti.kernel
 def substep_raw():
+    # for _ in range(1):
     for i in range(num_particles[None]):
-        acceleration = get_raw_gravity_at(particle_pos[j])
+        acceleration = get_raw_gravity_at(particle_pos[i])
         particle_vel[i] += acceleration * DT
 
     for i in range(num_particles[None]):
@@ -389,38 +389,36 @@ def initialize(num_p: ti.i32):
     set a value to 'num_particles[None]' taichi field to indicate.
     :return: None
     """
-    for i in range(num_p):
+    for _ in range(num_p):
         particle_id = alloc_particle()
+
+        particle_mass[particle_id] = ti.random() * 1.4 + 0.1
 
         a = ti.random() * math.tau
         r = ti.sqrt(ti.random()) * 0.3
         particle_pos[particle_id] = 0.5 + ti.Vector([ti.cos(a), ti.sin(a)]) * r
+
         # particle_pos[particle_id] = ti.Vector(
         #     [ti.random() * 1.0, ti.random() * 1.0])
-        #
-        # particle_mass[particle_id] = ti.random() * 1.4 + 0.1
 
 
 if __name__ == '__main__':
     gui = ti.GUI('N-body Star', res=RES)
 
+    initialize(8192)  #
     timer_init()
 
-    initialize(512 * 10)  #
-
-    # while gui.running and not gui.get_event(ti.GUI.ESCAPE):
-
-    for i in range(60):
+    # for step in range(50):
+    while gui.running:
         gui.circles(particle_pos.to_numpy(), radius=2, color=0xfbfcbf)
-        filename = f'nbody_out/t_{i:05d}.png'
-        print(f't {i} is recorded in {filename}')
-        gui.show(filename)
+        # filename = f'nbody_out/t_{step:05d}.png'
+        # print(f't {step} is recorded in {filename}')
+        gui.show()
 
-        for _ in range(10):
-            # Main computation
-            build_tree()
-            substep_tree()
+        # for _ in range(10):
+        # Main computation
+        build_tree()
+        substep_tree()
+        # substep_raw()
 
-        print_results(f'nbody_out/t_{i:05d}_plt.png')
-
-    # substep_raw()
+    # print_results(f'nbody_out/t_{step:05d}_plt.png')
