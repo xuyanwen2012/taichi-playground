@@ -32,13 +32,14 @@ def print_results(fname):
     # print(max(arr))
     # print(min(arr))
 
-    # n, bins, patches = plt.hist(arr, 10, [0, 500], alpha=0.75)
-    n, bins, patches = plt.hist(arr, alpha=0.75)
-    # n, bins, patches = plt.hist(arr, 100, [0, 10000], alpha=0.75)
+    # n, bins, patches = plt.hist(arr, range=[0, 600], alpha=0.75)
+    # n, bins, patches = plt.hist(arr, alpha=0.75)
+    n, bins, patches = plt.hist(arr, range=[0, 10000], alpha=0.75)
     # n, bins, patches = plt.hist(arr, alpha=0.75)
     plt.yscale("log")
     # plt.show()
     plt.savefig(fname)
+    # plt.clf()
 
 
 @ti.func
@@ -282,6 +283,10 @@ def get_tree_gravity_at(position):
 
     trash_id = 0
     while trash_id < trash_table_len[None]:
+        # ----------- Timer code --------------------
+        # time_starts[trash_id] = get_time_nanosec()
+        # -------------------------------------------
+
         parent = trash_base_parent[trash_id]
         parent_geo_size = trash_base_geo_size[trash_id]
 
@@ -306,6 +311,9 @@ def get_tree_gravity_at(position):
                     trash_base_parent[new_trash_id] = child
                     trash_base_geo_size[new_trash_id] = child_geo_size
 
+        # ----------- Timer code ------------------
+        # time_ends[trash_id] = get_time_nanosec()
+        # -----------------------------------------
         trash_id = trash_id + 1
 
     return acc
@@ -355,9 +363,9 @@ def substep_tree():
         acceleration = get_tree_gravity_at(particle_pos[particle_id])
         particle_vel[particle_id] += acceleration * DT
         # well... seems our tree inserter will break if particle out-of-bound:
-        # particle_vel[particle_id] = boundReflect(particle_pos[particle_id],
-        #                                          particle_vel[particle_id],
-        #                                          0, 1)
+        particle_vel[particle_id] = boundReflect(particle_pos[particle_id],
+                                                 particle_vel[particle_id],
+                                                 0, 1)
         particle_id = particle_id + 1
     for i in range(num_particles[None]):
         particle_pos[i] += particle_vel[i] * DT
@@ -366,12 +374,9 @@ def substep_tree():
 # The O(N^2) kernel algorithm
 @ti.kernel
 def substep_raw():
-    j = 0
-    while j < num_particles[None]:
-        # for i in range(num_particles[None]):
+    for i in range(num_particles[None]):
         acceleration = get_raw_gravity_at(particle_pos[j])
-        particle_vel[j] += acceleration * DT
-        j += 1
+        particle_vel[i] += acceleration * DT
 
     for i in range(num_particles[None]):
         particle_pos[i] += particle_vel[i] * DT
@@ -392,8 +397,8 @@ def initialize(num_p: ti.i32):
         particle_pos[particle_id] = 0.5 + ti.Vector([ti.cos(a), ti.sin(a)]) * r
         # particle_pos[particle_id] = ti.Vector(
         #     [ti.random() * 1.0, ti.random() * 1.0])
-
-        particle_mass[particle_id] = ti.random() * 1.4 + 0.1
+        #
+        # particle_mass[particle_id] = ti.random() * 1.4 + 0.1
 
 
 if __name__ == '__main__':
@@ -405,7 +410,7 @@ if __name__ == '__main__':
 
     # while gui.running and not gui.get_event(ti.GUI.ESCAPE):
 
-    for i in range(45):
+    for i in range(60):
         gui.circles(particle_pos.to_numpy(), radius=2, color=0xfbfcbf)
         filename = f'nbody_out/t_{i:05d}.png'
         print(f't {i} is recorded in {filename}')
