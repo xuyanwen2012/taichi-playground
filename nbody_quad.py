@@ -7,7 +7,48 @@ https://github.com/taichi-dev/taichi/blob/master/examples/tree_gravity.py#L18
 import taichi as ti
 import math
 
-ti.init(arch=ti.gpu)
+# --------------- Windows timer utils ---------------
+
+import matplotlib.pyplot as plt
+import ctypes
+
+dll = ctypes.WinDLL("C:/Users/xuyan/source/repos/Dll1/x64/Release/Dll1.dll")
+
+
+def timer_init():
+    dll.timer_init()
+
+
+def print_results():
+    print(time_starts)
+    print(time_ends)
+
+    arr = (time_ends.to_numpy() - time_starts.to_numpy()).flatten()
+
+    arr = arr[arr != 0]
+
+    print(max(arr))
+    print(min(arr))
+
+    n, bins, patches = plt.hist(arr, 100, [0, 2000], alpha=0.75)
+    # n, bins, patches = plt.hist(arr, 100, [0, 10000], alpha=0.75)
+    # n, bins, patches = plt.hist(arr, alpha=0.75)
+    # plt.yscale("log")
+    plt.show()
+
+
+@ti.func
+def get_time_nanosec():
+    nano_sec = ti.cast(0, ti.i64)
+    ti.external_func_call(func=dll.get_time_nanosec,
+                          args=(),
+                          outputs=(nano_sec,))
+    return nano_sec
+
+
+# --------------------------------------------------------------------------
+
+ti.init(arch=ti.cpu)
 if not hasattr(ti, 'jkl'):
     ti.jkl = ti.indices(1, 2, 3)
 
@@ -56,6 +97,13 @@ trash_table.place(trash_particle_id)
 trash_table.place(trash_base_parent, trash_base_geo_size)
 trash_table.place(trash_base_geo_center)
 trash_table_len = ti.field(ti.i32, ())
+
+# ------ Per-project Timer Utils -------------------------------------------
+time_starts = ti.field(dtype=ti.i64, shape=NUM_MAX_PARTICLE)
+time_ends = ti.field(dtype=ti.i64, shape=NUM_MAX_PARTICLE)
+
+
+# --------------------------------------------------------------------------
 
 
 @ti.func
@@ -175,6 +223,11 @@ def build_tree():
     # Foreach particle: register it to a node.
     particle_id = 0
     while particle_id < num_particles[None]:
+
+        # ----------- Timer code --------------------
+        time_starts[particle_id] = get_time_nanosec()
+        # -------------------------------------------
+
         # Root as parent,
         # 0.5 (center) as the parent centroid position
         # 1.0 (whole) as the parent geo size
@@ -190,6 +243,11 @@ def build_tree():
             trash_id = trash_id + 1
 
         trash_table_len[None] = 0
+
+        # ----------- Timer code ------------------
+        time_ends[particle_id] = get_time_nanosec()
+        # -----------------------------------------
+
         particle_id = particle_id + 1
 
 
@@ -232,7 +290,8 @@ def get_tree_gravity_at(position):
                     continue
                 node_center = node_centroid_pos[child] / node_mass[child]
                 distance = node_center - position
-                if distance.norm_sqr() > SHAPE_FACTOR ** 2 * parent_geo_size ** 2:
+                if distance.norm_sqr() > \
+                        SHAPE_FACTOR ** 2 * parent_geo_size ** 2:
                     acc += node_mass[child] * gravity_func(distance)
                 else:
                     new_trash_id = alloc_trash()
@@ -300,9 +359,13 @@ def substep_tree():
 # The O(N^2) kernel algorithm
 @ti.kernel
 def substep_raw():
-    for i in range(num_particles[None]):
-        acceleration = get_raw_gravity_at(particle_pos[i])
-        particle_vel[i] += acceleration * DT
+    j = 0
+    while j < num_particles[None]:
+        # for i in range(num_particles[None]):
+        acceleration = get_raw_gravity_at(particle_pos[j])
+        particle_vel[j] += acceleration * DT
+        j += 1
+
     for i in range(num_particles[None]):
         particle_pos[i] += particle_vel[i] * DT
 
@@ -320,21 +383,29 @@ def initialize(num_p: ti.i32):
         a = ti.random() * math.tau
         r = ti.sqrt(ti.random()) * 0.3
         particle_pos[particle_id] = 0.5 + ti.Vector([ti.cos(a), ti.sin(a)]) * r
+        # particle_pos[particle_id] = ti.Vector(
+        #     [ti.random() * 1.0, ti.random() * 1.0])
 
         particle_mass[particle_id] = ti.random() * 1.4 + 0.1
-        # TODO: random initial starting velocity?
 
 
 if __name__ == '__main__':
     gui = ti.GUI('N-body Star')
 
-    initialize(512)
+    initialize(512 * 10)
+    #
+    # while gui.running and not gui.get_event(ti.GUI.ESCAPE):
+    #     gui.circles(particle_pos.to_numpy(), radius=2, color=0xfbfcbf)
+    #     gui.show()
+    #
+    #     # Main computation
+    #     build_tree()
+    #     substep_tree()
+    #     # substep_raw()
+    #
+    timer_init()
 
-    while gui.running and not gui.get_event(ti.GUI.ESCAPE):
-        gui.circles(particle_pos.to_numpy(), radius=2, color=0xfbfcbf)
-        gui.show()
+    build_tree()
+    substep_tree()
 
-        # Main computation
-        build_tree()
-        substep_tree()
-        # substep_raw()
+    print_results()
