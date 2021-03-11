@@ -7,6 +7,8 @@ https://github.com/taichi-dev/taichi/blob/master/examples/tree_gravity.py#L18
 import taichi as ti
 import math
 
+import imageio
+
 # --------------- Windows timer utils ---------------
 
 import matplotlib.pyplot as plt
@@ -19,22 +21,24 @@ def timer_init():
     dll.timer_init()
 
 
-def print_results():
-    print(time_starts)
-    print(time_ends)
+def print_results(fname):
+    # print(time_starts)
+    # print(time_ends)
 
     arr = (time_ends.to_numpy() - time_starts.to_numpy()).flatten()
 
     arr = arr[arr != 0]
 
-    print(max(arr))
-    print(min(arr))
+    # print(max(arr))
+    # print(min(arr))
 
-    n, bins, patches = plt.hist(arr, 100, [0, 2000], alpha=0.75)
+    # n, bins, patches = plt.hist(arr, 10, [0, 500], alpha=0.75)
+    n, bins, patches = plt.hist(arr, alpha=0.75)
     # n, bins, patches = plt.hist(arr, 100, [0, 10000], alpha=0.75)
     # n, bins, patches = plt.hist(arr, alpha=0.75)
-    # plt.yscale("log")
-    plt.show()
+    plt.yscale("log")
+    # plt.show()
+    plt.savefig(fname)
 
 
 @ti.func
@@ -51,6 +55,9 @@ def get_time_nanosec():
 ti.init(arch=ti.cpu)
 if not hasattr(ti, 'jkl'):
     ti.jkl = ti.indices(1, 2, 3)
+
+# Program related
+RES = (640, 480)
 
 # N-body related
 DT = 1e-5
@@ -390,22 +397,25 @@ def initialize(num_p: ti.i32):
 
 
 if __name__ == '__main__':
-    gui = ti.GUI('N-body Star')
+    gui = ti.GUI('N-body Star', res=RES)
 
-    initialize(512 * 10)
-    #
-    # while gui.running and not gui.get_event(ti.GUI.ESCAPE):
-    #     gui.circles(particle_pos.to_numpy(), radius=2, color=0xfbfcbf)
-    #     gui.show()
-    #
-    #     # Main computation
-    #     build_tree()
-    #     substep_tree()
-    #     # substep_raw()
-    #
     timer_init()
 
-    build_tree()
-    substep_tree()
+    initialize(512 * 10)  #
 
-    print_results()
+    # while gui.running and not gui.get_event(ti.GUI.ESCAPE):
+
+    for i in range(45):
+        gui.circles(particle_pos.to_numpy(), radius=2, color=0xfbfcbf)
+        filename = f'nbody_out/t_{i:05d}.png'
+        print(f't {i} is recorded in {filename}')
+        gui.show(filename)
+
+        for _ in range(10):
+            # Main computation
+            build_tree()
+            substep_tree()
+
+        print_results(f'nbody_out/t_{i:05d}_plt.png')
+
+    # substep_raw()
