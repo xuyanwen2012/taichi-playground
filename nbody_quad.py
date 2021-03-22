@@ -27,16 +27,24 @@ def print_results(fname):
 
     arr = arr[arr != 0]
 
-    # print(max(arr))
-    # print(min(arr))
+    print(sum(arr))
 
-    n, bins, patches = plt.hist(arr, range=[0, 500], alpha=0.75)
+    print(arr)
+    print(max(arr))
+
+    min_data = min(arr)
+    max_data = 5000
+    binwidth = 100
+
+    n, bins, patches = plt.hist(arr, bins=range(min_data, max_data + binwidth,
+                                                binwidth), range=[0, 1000],
+                                alpha=0.75)
     # n, bins, patches = plt.hist(arr, alpha=0.75)
     # n, bins, patches = plt.hist(arr, range=[0, 10000], alpha=0.75)
     # n, bins, patches = plt.hist(arr, alpha=0.75)
     # plt.yscale("log")
-    # plt.show()
-    plt.savefig(fname)
+    plt.show()
+    # plt.savefig(fname)
     # plt.clf()
 
 
@@ -231,7 +239,7 @@ def build_tree():
     while particle_id < num_particles[None]:
 
         # ----------- Timer code --------------------
-        # time_starts[particle_id] = get_time_nanosec()
+        time_starts[particle_id] = get_time_nanosec()
         # -------------------------------------------
 
         # Root as parent,
@@ -251,7 +259,7 @@ def build_tree():
         trash_table_len[None] = 0
 
         # ----------- Timer code ------------------
-        # time_ends[particle_id] = get_time_nanosec()
+        time_ends[particle_id] = get_time_nanosec()
         # -----------------------------------------
 
         particle_id = particle_id + 1
@@ -408,8 +416,8 @@ if __name__ == '__main__':
     initialize(8192)  #
     timer_init()
 
-    # for step in range(50):
-    while gui.running:
+    for step in range(1):
+        # while gui.running:
         gui.circles(particle_pos.to_numpy(), radius=2, color=0xfbfcbf)
         # filename = f'nbody_out/t_{step:05d}.png'
         # print(f't {step} is recorded in {filename}')
@@ -422,3 +430,4 @@ if __name__ == '__main__':
         # substep_raw()
 
     # print_results(f'nbody_out/t_{step:05d}_plt.png')
+    print_results(None)
