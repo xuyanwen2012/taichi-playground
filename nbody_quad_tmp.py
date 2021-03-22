@@ -21,10 +21,11 @@ def timer_init():
 
 
 def print_results(fname):
-    arr = (time_ends.to_numpy() - time_starts.to_numpy()).flatten()
+    # arr = (get_time_starts.to_numpy() - get_time_ends.to_numpy()).flatten()
+    arr = (build_time_ends.to_numpy() - build_time_starts.to_numpy()).flatten()
     arr = arr[arr != 0]
 
-    # # Remove outliers based on some deviation
+    # Remove outliers based on some deviation
     mean = np.mean(arr)
     standard_deviation = np.std(arr)
     distance_from_mean = abs(arr - mean)
@@ -32,12 +33,13 @@ def print_results(fname):
     not_outlier = distance_from_mean < max_deviations * standard_deviation
     no_outliers = arr[not_outlier]
 
-    print(no_outliers)
-    print(max(no_outliers))
+    # print(no_outliers)
+    # print(max(no_outliers))
 
-    n, bins, patches = plt.hist(no_outliers, alpha=0.75)
-    plt.show()
-    # plt.savefig(fname)
+    n, bins, patches = plt.hist(no_outliers, bins=10, range=[0, 1000],
+                                alpha=0.75)
+    # plt.show()
+    plt.savefig(fname)
     # plt.clf()
 
 
@@ -106,8 +108,11 @@ trash_table.place(trash_base_geo_center)
 trash_table_len = ti.field(ti.i32, ())
 
 # ------ Per-project Timer Utils -------------------------------------------
-time_starts = ti.field(dtype=ti.i64, shape=NUM_MAX_PARTICLE)
-time_ends = ti.field(dtype=ti.i64, shape=NUM_MAX_PARTICLE)
+build_time_starts = ti.field(dtype=ti.i64, shape=NUM_MAX_PARTICLE)
+build_time_ends = ti.field(dtype=ti.i64, shape=NUM_MAX_PARTICLE)
+
+get_time_starts = ti.field(dtype=ti.i64, shape=NUM_MAX_PARTICLE)
+get_time_ends = ti.field(dtype=ti.i64, shape=NUM_MAX_PARTICLE)
 
 
 # --------------------------------------------------------------------------
@@ -232,7 +237,7 @@ def build_tree():
     while particle_id < num_particles[None]:
 
         # ----------- Timer code --------------------
-        # time_starts[particle_id] = get_time_nanosec()
+        build_time_starts[particle_id] = get_time_nanosec()
         # -------------------------------------------
 
         # Root as parent,
@@ -252,7 +257,7 @@ def build_tree():
         trash_table_len[None] = 0
 
         # ----------- Timer code ------------------
-        # time_ends[particle_id] = get_time_nanosec()
+        build_time_ends[particle_id] = get_time_nanosec()
         # -----------------------------------------
 
         particle_id = particle_id + 1
@@ -282,10 +287,6 @@ def get_tree_gravity_at(position):
 
     trash_id = 0
     while trash_id < trash_table_len[None]:
-        # ----------- Timer code --------------------
-        time_starts[trash_id] = get_time_nanosec()
-        # -------------------------------------------
-
         parent = trash_base_parent[trash_id]
         parent_geo_size = trash_base_geo_size[trash_id]
 
@@ -309,10 +310,6 @@ def get_tree_gravity_at(position):
                     child_geo_size = parent_geo_size * 0.5
                     trash_base_parent[new_trash_id] = child
                     trash_base_geo_size[new_trash_id] = child_geo_size
-
-        # ----------- Timer code ------------------
-        time_ends[trash_id] = get_time_nanosec()
-        # -----------------------------------------
         trash_id = trash_id + 1
 
     return acc
@@ -359,6 +356,10 @@ def boundReflect(pos, vel, pmin=0, pmax=1, gamma=1, gamma_perpendicular=1):
 def substep_tree():
     particle_id = 0
     while particle_id < num_particles[None]:
+        # ----------- Timer code --------------------
+        get_time_starts[particle_id] = get_time_nanosec()
+        # -------------------------------------------
+
         acceleration = get_tree_gravity_at(particle_pos[particle_id])
         particle_vel[particle_id] += acceleration * DT
         # well... seems our tree inserter will break if particle out-of-bound:
@@ -366,6 +367,10 @@ def substep_tree():
                                                  particle_vel[particle_id],
                                                  0, 1)
         particle_id = particle_id + 1
+
+        # ----------- Timer code ------------------
+        get_time_ends[particle_id] = get_time_nanosec()
+        # -----------------------------------------
 
     for i in range(num_particles[None]):
         particle_pos[i] += particle_vel[i] * DT
@@ -409,18 +414,20 @@ if __name__ == '__main__':
     initialize(8192)  #
     timer_init()
 
-    for step in range(1):
+    for step in range(50):
         # while gui.running:
         gui.circles(particle_pos.to_numpy(), radius=2, color=0xfbfcbf)
-        # filename = f'nbody_out/t_{step:05d}.png'
+        filename = f'nbody_out/t_{step:05d}.png'
         # print(f't {step} is recorded in {filename}')
-        gui.show()
+        gui.show(filename)
 
-        # for _ in range(10):
-        # Main computation
-        build_tree()
-        substep_tree()
-        # substep_raw()
+        for _ in range(10):
+            # Main computation
+            build_tree()
+            substep_tree()
+            # substep_raw()
+            # print_results(None)
+            print_results(f'nbody_out/t_{step:05d}_plt.png')
 
+    # plt.show()
     # print_results(f'nbody_out/t_{step:05d}_plt.png')
-    print_results(None)
