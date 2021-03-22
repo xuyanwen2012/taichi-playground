@@ -15,18 +15,34 @@ def timer_init():
     dll.timer_init()
 
 
+many_results = np.zeros((100, 1280, 720))
+
+
+def save_step_results(step: int):
+    arr = (time_ends.to_numpy() - time_starts.to_numpy())
+    many_results[step, :, :] = arr
+
+
 def print_results():
-    print(time_starts)
-    print(time_ends)
+    arr = (time_ends.to_numpy() - time_starts.to_numpy())
+    print(arr)
 
-    arr = (time_ends.to_numpy() - time_starts.to_numpy()).flatten()
+    # mean = np.mean(arr)
+    # standard_deviation = np.std(arr)
+    # distance_from_mean = abs(arr - mean)
+    # max_deviations = 2
+    # not_outlier = distance_from_mean < max_deviations * standard_deviation
+    # no_outliers = arr[not_outlier]
 
-    print(max(arr))
-    print(min(arr))
+    # print(max(no_outliers))
+    # print(min(no_outliers))
 
-    n, bins, patches = plt.hist(arr, 100, [0, 25000], alpha=0.75)
-    # n, bins, patches = plt.hist(arr, 100, [0, 25000], alpha=0.75)
-    plt.show()
+    # # n, bins, patches = plt.hist(arr.flatten(), 100, [0, 25000], alpha=0.75)
+    # n, bins, patches = plt.hist(arr.flatten(), 200, [0, 25000], alpha=0.75)
+    # plt.show()
+
+    # # fig, ax = plt.subplots()
+    # im = ax.imshow(no_outliers)
 
 
 @ti.func
@@ -201,8 +217,12 @@ def render():
 
 
 timer_init()
-start = time.time()
-render()
-print_results()
-end = time.time()
-print(end - start)
+
+for step in range(100):
+    render()
+    save_step_results(step)
+
+with open('test.npy', 'wb') as f:
+    np.save(f, many_results)
+
+# print_results()
